@@ -1082,7 +1082,7 @@ function Export-Report {
     $rep.Add(('Найдено файлов:     {0:N0} общим объёмом {1}' -f $S.Files[$root], (Fmt $rootTotal)))
     if ($S.Partial) { $rep.Add('ВНИМАНИЕ:           сканирование было остановлено, данные неполные') }
 
-    $min = [Math]::Max(200MB, $rootTotal * 0.005)
+    $min = [Math]::Max([double]200MB, $rootTotal * 0.005)
     $rep.Add('')
     $rep.Add($line)
     $rep.Add(('  ДЕРЕВО КРУПНЫХ ПАПОК  (от {0}, вложенные папки сдвинуты вправо)' -f (Fmt $min)))
@@ -1111,8 +1111,12 @@ function Export-Report {
             $rep.Add(('{0,10}  {1}  [{2}]' -f $size, $cx[0], $cx[1]))
         }
         if ($root -eq 'C:\' -and -not $S.Partial -and $drv.IsReady) {
-            $hidden = ($drv.TotalSize - $drv.TotalFreeSpace) - $rootTotal
-            $rep.Add(('{0,10}  Не удалось посчитать (точки восстановления, системные файлы без доступа)' -f (Fmt ([Math]::Max(0, $hidden)))))
+            $hidden = [double]($drv.TotalSize - $drv.TotalFreeSpace) - $rootTotal
+            if ($hidden -ge 0) {
+                $rep.Add(('{0,10}  Не удалось посчитать (точки восстановления, системные файлы без доступа)' -f (Fmt $hidden)))
+            } else {
+                $rep.Add(('{0,10}  Найдено БОЛЬШЕ, чем занято на диске: системные файлы с жёсткими ссылками (WinSxS) посчитаны дважды' -f (Fmt (-$hidden))))
+            }
         }
     }
 
