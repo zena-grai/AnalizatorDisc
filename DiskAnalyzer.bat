@@ -5,6 +5,7 @@ if errorlevel 1 (
     powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
     exit /b
 )
+set "APP_PATH=%~f0"
 start "" powershell -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -Command "iex ([IO.File]::ReadAllText('%~f0'))"
 exit /b
 : end of batch part #>
@@ -12,7 +13,14 @@ exit /b
 # =====================================================================
 #  Анализатор диска — тёмное оконное приложение (WinForms).
 #  Только смотрит и показывает. Ничего не удаляет и не меняет.
+#  https://github.com/zena-grai/AnalizatorDisc
 # =====================================================================
+
+# При каждом изменении, которое заливается на GitHub, увеличивай версию:
+# по ней программа понимает, что пора обновиться.
+$AppVersion = '1.2.0'
+$RepoUrl    = 'https://github.com/zena-grai/AnalizatorDisc'
+$RawUrl     = 'https://raw.githubusercontent.com/zena-grai/AnalizatorDisc/main/DiskAnalyzer.bat'
 
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
@@ -30,6 +38,10 @@ public static class Native {
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
     [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] static extern int SetWindowTheme(IntPtr h, string app, string id);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, string l);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern int SetCurrentProcessExplicitAppUserModelID(string id);
+
+    // Своё имя приложения для панели задач: иначе Windows группирует окно с PowerShell и берёт его иконку.
+    public static void AppId(string id) { try { SetCurrentProcessExplicitAppUserModelID(id); } catch {} }
 
     public static void DarkTitleBar(IntPtr h) {
         int on = 1;
@@ -64,7 +76,7 @@ $script:hasNative = [bool]('Native' -as [type])
 function Dark-Title($h)  { if ($script:hasNative) { [Native]::DarkTitleBar($h) } }
 function Dark-Scroll($h) { if ($script:hasNative) { [Native]::DarkScroll($h) } }
 function Set-Cue($h, $t) { if ($script:hasNative) { [Native]::Cue($h, $t) } }
-if ($script:hasNative) { [Native]::SetProcessDPIAware() | Out-Null }
+if ($script:hasNative) { [Native]::SetProcessDPIAware() | Out-Null; [Native]::AppId('zenagrai.AnalizatorDisc') }
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $gr0 = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
@@ -117,6 +129,7 @@ $G = @{
     Open   = Glyph 0xE838;  AddDir  = Glyph 0xE8F4;  Reload = Glyph 0xE72C
     Drive  = Glyph 0xEDA2;  Search  = Glyph 0xE721;  Warn   = Glyph 0xE7BA
     Ok     = Glyph 0xE73E;  Panel   = Glyph 0xE8A0;  Save = Glyph 0xE74E
+    Gear   = Glyph 0xE713
 }
 
 $TF_L = [System.Windows.Forms.TextFormatFlags]'Left, VerticalCenter, EndEllipsis, NoPrefix, SingleLine'
@@ -199,6 +212,25 @@ function Level-Color([double]$freeRatio) {
 }
 
 $tips = New-Object System.Windows.Forms.ToolTip
+
+# Иконка приложения: синий скруглённый квадрат с «бубликом» заполнения диска
+function New-AppIcon {
+    $n = 64
+    $bmp = New-Object System.Drawing.Bitmap($n, $n)
+    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+    $gfx.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $gfx.Clear([System.Drawing.Color]::Transparent)
+    Fill-Round $gfx $C.Accent 2 2 60 60 15
+    $white = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+    $soft  = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(90, 255, 255, 255))
+    $gfx.FillEllipse($soft, 12, 12, 40, 40)
+    $gfx.FillPie($white, 12, 12, 40, 40, -90, 250)
+    $hole = New-Object System.Drawing.SolidBrush($C.Accent)
+    $gfx.FillEllipse($hole, 22, 22, 20, 20)
+    $white.Dispose(); $soft.Dispose(); $hole.Dispose(); $gfx.Dispose()
+    [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+}
+$AppIcon = New-AppIcon
 
 function New-IconButton($parent, [string]$glyph, [string]$tip, [int]$size = 34) {
     $l = New-Object System.Windows.Forms.Label
@@ -344,7 +376,7 @@ $form.Size = Sz (Px 1200) (Px 740)
 $form.MinimumSize = Sz (Px 900) (Px 520)
 $form.StartPosition = 'CenterScreen'
 $form.KeyPreview = $true
-try { $form.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon("$env:SystemRoot\System32\cleanmgr.exe") } catch {}
+if ($AppIcon) { $form.Icon = $AppIcon }
 $form.add_HandleCreated({ Dark-Title $this.Handle })
 
 # ===== Основная область (добавляется первой — занимает остаток) =====
@@ -562,7 +594,7 @@ $rail.Dock = 'Left'; $rail.Width = Px 52; $rail.BackColor = $C.Rail
 $form.Controls.Add($rail)
 
 $railBottom = New-Object System.Windows.Forms.Panel
-$railBottom.Dock = 'Bottom'; $railBottom.Height = Px 100; $railBottom.BackColor = $C.Rail
+$railBottom.Dock = 'Bottom'; $railBottom.Height = Px 148; $railBottom.BackColor = $C.Rail
 $rail.Controls.Add($railBottom)
 
 $railIndicator = New-Object System.Windows.Forms.Panel
@@ -588,6 +620,8 @@ $icoClean = New-IconButton $railBottom $G.Clean 'Открыть «Очистку
 $icoClean.Location = Pt (Px 6) (Px 4)
 $icoInfo = New-IconButton $railBottom $G.Info 'О программе' 40
 $icoInfo.Location = Pt (Px 6) (Px 52)
+$icoSettings = New-IconButton $railBottom $G.Gear 'Настройки и обновления' 40
+$icoSettings.Location = Pt (Px 6) (Px 100)
 
 function Update-Rail {
     foreach ($key in $railIcons.Keys) {
@@ -1132,6 +1166,223 @@ function Export-Report {
     Open-InExplorer $out -Select
 }
 
+# ---------------------------------------------------------------------
+#  Настройки и обновление с GitHub
+# ---------------------------------------------------------------------
+$SettingsFile = Join-Path $env:APPDATA 'AnalizatorDisc\settings.json'
+
+function Load-Settings {
+    $st = @{ AutoUpdate = $true }
+    try {
+        if (Test-Path -LiteralPath $SettingsFile) {
+            $j = Get-Content -LiteralPath $SettingsFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($null -ne $j.AutoUpdate) { $st.AutoUpdate = [bool]$j.AutoUpdate }
+        }
+    } catch {}
+    $st
+}
+
+function Save-Settings {
+    try {
+        New-Item -ItemType Directory -Force -Path (Split-Path $SettingsFile) | Out-Null
+        [pscustomobject]$script:settings | ConvertTo-Json | Set-Content -LiteralPath $SettingsFile -Encoding UTF8
+    } catch {}
+}
+
+$script:settings  = Load-Settings
+$script:update    = $null     # найденное обновление: Version, Bytes
+$script:updTask   = $null
+$script:updMsg    = ''
+$script:updSilent = $true
+$script:setUi     = $null     # элементы открытого окна настроек
+
+$updTimer = New-Object System.Windows.Forms.Timer
+$updTimer.Interval = 300
+
+function Start-UpdateCheck([bool]$silent) {
+    if ($script:updTask) { return }
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    } catch {}
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers['User-Agent'] = 'AnalizatorDisc'
+    $script:updSilent = $silent
+    $script:updTask = $wc.DownloadDataTaskAsync($RawUrl + '?nocache=' + [DateTime]::UtcNow.Ticks)
+    $updTimer.Start()
+}
+
+function Read-RemoteVersion([byte[]]$bytes) {
+    $text = [Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF)
+    if (-not $text.StartsWith('<# : batch part')) { return $null }
+    $m = [regex]::Match($text, "\`$AppVersion\s*=\s*'([\d.]+)'")
+    if (-not $m.Success) { return $null }
+    [version]$m.Groups[1].Value
+}
+
+function Set-UpdateResult([string]$msg) {
+    $script:updMsg = $msg
+    if ($script:update) {
+        $icoSettings.ForeColor = $C.Accent
+        $lblStatus.ForeColor = $C.Accent
+        $lblStatus.Text = 'Доступна новая версия {0}. Открой настройки (шестерёнка слева внизу), чтобы обновиться.' -f $script:update.Version
+    } elseif (-not $script:updSilent) {
+        $lblStatus.ForeColor = $C.Dim
+        $lblStatus.Text = $msg
+    }
+    if ($script:setUi) { Update-SettingsUi }
+}
+
+$updTimer.add_Tick({
+    $task = $script:updTask
+    if (-not $task -or -not $task.IsCompleted) { return }
+    $updTimer.Stop()
+    $script:updTask = $null
+    if ($task.IsFaulted -or $task.IsCanceled) {
+        Set-UpdateResult 'Не удалось проверить обновления: нет связи с GitHub.'
+        return
+    }
+    $bytes  = $task.Result
+    $remote = Read-RemoteVersion $bytes
+    if (-not $remote) {
+        Set-UpdateResult 'Файл на GitHub не похож на программу — обновление пропущено.'
+        return
+    }
+    if ($remote -gt [version]$AppVersion) {
+        $script:update = [pscustomobject]@{ Version = $remote; Bytes = $bytes }
+        Set-UpdateResult ('Доступна версия {0} (у тебя {1}).' -f $remote, $AppVersion)
+    } else {
+        Set-UpdateResult ('У тебя последняя версия ({0}).' -f $AppVersion)
+    }
+})
+
+function Apply-Update {
+    $u = $script:update
+    if (-not $u) { return }
+    if ($script:scanning) {
+        [System.Windows.Forms.MessageBox]::Show('Дождись окончания сканирования или останови его.', 'Обновление', 'OK', 'Information') | Out-Null
+        return
+    }
+    $path = $env:APP_PATH
+    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+        [System.Windows.Forms.MessageBox]::Show("Не удалось найти файл программы. Скачай новую версию вручную со страницы:`n$RepoUrl", 'Обновление', 'OK', 'Warning') | Out-Null
+        Start-Process $RepoUrl
+        return
+    }
+    try {
+        Copy-Item -LiteralPath $path -Destination (Join-Path $env:TEMP 'DiskAnalyzer.backup.bat') -Force
+        [IO.File]::WriteAllBytes($path, $u.Bytes)
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("Не получилось записать файл:`n$($_.Exception.Message)", 'Обновление', 'OK', 'Error') | Out-Null
+        return
+    }
+    Start-Process -FilePath $path
+    $form.Close()
+}
+
+function Update-SettingsUi {
+    $ui = $script:setUi
+    if (-not $ui) { return }
+    $busy = [bool]$script:updTask
+    if ($script:update) {
+        $ui.Status.Text = 'Доступна версия {0}. Программа скачает её с GitHub, заменит свой файл и перезапустится.' -f $script:update.Version
+        $ui.Status.ForeColor = $C.Accent
+        $ui.Button.Text = 'Обновить до {0}' -f $script:update.Version
+    } else {
+        $ui.Status.Text = if ($busy) { 'Проверяю обновления…' } elseif ($script:updMsg) { $script:updMsg } else { 'Обновления ещё не проверялись.' }
+        $ui.Status.ForeColor = $C.Sub
+        $ui.Button.Text = 'Проверить обновления'
+    }
+    $ui.Button.Enabled = -not $busy
+}
+
+function New-FlatButton([string]$text, $back, $hover, $fore) {
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.FlatStyle = 'Flat'
+    $btn.FlatAppearance.BorderSize = 0
+    $btn.FlatAppearance.MouseOverBackColor = $hover
+    $btn.BackColor = $back
+    $btn.ForeColor = $fore
+    $btn.Font = $F.UiBold
+    $btn.Text = $text
+    $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $btn
+}
+
+function Show-Settings {
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'Настройки'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
+    $dlg.ShowInTaskbar = $false
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.BackColor = $C.Bg; $dlg.ForeColor = $C.Text; $dlg.Font = $F.Ui
+    $dlg.ClientSize = Sz (Px 460) (Px 320)
+    if ($AppIcon) { $dlg.Icon = $AppIcon }
+    $dlg.add_HandleCreated({ Dark-Title $this.Handle })
+
+    $logo = New-Object System.Windows.Forms.PictureBox
+    $logo.Size = Sz (Px 44) (Px 44); $logo.Location = Pt (Px 24) (Px 22)
+    $logo.SizeMode = 'StretchImage'
+    if ($AppIcon) { $logo.Image = $AppIcon.ToBitmap() }
+
+    $title = New-Object System.Windows.Forms.Label
+    $title.Text = 'Анализатор диска'; $title.Font = $F.Title; $title.AutoSize = $true
+    $title.Location = Pt (Px 80) (Px 20)
+
+    $ver = New-Object System.Windows.Forms.Label
+    $ver.Text = "Версия $AppVersion  ·  только просмотр, ничего не удаляет"
+    $ver.Font = $F.Small; $ver.ForeColor = $C.Sub; $ver.AutoSize = $true
+    $ver.Location = Pt (Px 82) (Px 48)
+
+    $link = New-Object System.Windows.Forms.LinkLabel
+    $link.Text = 'github.com/zena-grai/AnalizatorDisc'
+    $link.LinkColor = $C.Accent; $link.ActiveLinkColor = $C.AccentHover; $link.VisitedLinkColor = $C.Accent
+    $link.LinkBehavior = 'HoverUnderline'
+    $link.AutoSize = $true; $link.Location = Pt (Px 24) (Px 84)
+    $link.add_LinkClicked({ Start-Process $RepoUrl })
+
+    $sep = New-Object System.Windows.Forms.Panel
+    $sep.BackColor = $C.Line; $sep.Location = Pt (Px 24) (Px 116); $sep.Size = Sz (Px 412) 1
+
+    $sect = New-Object System.Windows.Forms.Label
+    $sect.Text = 'Обновления'; $sect.Font = $F.UiBold; $sect.AutoSize = $true
+    $sect.Location = Pt (Px 24) (Px 130)
+
+    $chk = New-Object System.Windows.Forms.CheckBox
+    $chk.Text = 'Проверять обновления при запуске'
+    $chk.AutoSize = $true; $chk.ForeColor = $C.Text
+    $chk.FlatStyle = 'Flat'
+    $chk.FlatAppearance.BorderColor = $C.Sub
+    $chk.FlatAppearance.CheckedBackColor = $C.Accent
+    $chk.Location = Pt (Px 24) (Px 158)
+    $chk.Checked = [bool]$script:settings.AutoUpdate
+    $chk.add_CheckedChanged({ $script:settings.AutoUpdate = $this.Checked; Save-Settings })
+
+    $status = New-Object System.Windows.Forms.Label
+    $status.AutoSize = $false; $status.Size = Sz (Px 412) (Px 44)
+    $status.Location = Pt (Px 24) (Px 192); $status.ForeColor = $C.Sub
+
+    $btnUpd = New-FlatButton 'Проверить обновления' $C.Accent $C.AccentHover ([System.Drawing.Color]::White)
+    $btnUpd.Size = Sz (Px 210) (Px 36); $btnUpd.Location = Pt (Px 24) (Px 256)
+    $btnUpd.add_Click({
+        if ($script:update) { Apply-Update; return }
+        Start-UpdateCheck $false
+        Update-SettingsUi
+    })
+
+    $btnClose = New-FlatButton 'Закрыть' $C.Field $C.Hover $C.Text
+    $btnClose.Size = Sz (Px 110) (Px 36); $btnClose.Location = Pt (Px 326) (Px 256)
+    $btnClose.DialogResult = 'Cancel'
+    $dlg.CancelButton = $btnClose
+
+    $dlg.Controls.AddRange(@($logo, $title, $ver, $link, $sep, $sect, $chk, $status, $btnUpd, $btnClose))
+    $script:setUi = @{ Status = $status; Button = $btnUpd }
+    Update-SettingsUi
+    [void]$dlg.ShowDialog($form)
+    $script:setUi = $null
+    $dlg.Dispose()
+}
+
 function Safe([scriptblock]$block) {
     try { & $block }
     catch {
@@ -1190,9 +1441,11 @@ $icoReload.add_Click({ if (-not $script:scanning) { Refresh-Sidebar; Safe { Refr
 
 $icoClean.add_Click({ Start-Process cleanmgr.exe -ArgumentList '/d C' })
 $btnCleanmgr.add_Click({ Start-Process cleanmgr.exe -ArgumentList '/d C' })
+$icoSettings.add_Click({ Safe { Show-Settings } })
+$icoSettings.add_MouseLeave({ if ($script:update) { $this.ForeColor = $C.Accent } })
 $icoInfo.add_Click({
     [System.Windows.Forms.MessageBox]::Show(
-        "Анализатор диска`n`nПоказывает, какие папки и файлы занимают место. Сам ничего не удаляет.`n`n" +
+        "Анализатор диска, версия $AppVersion`n$RepoUrl`n`nПоказывает, какие папки и файлы занимают место. Сам ничего не удаляет.`n`n" +
         "Двойной клик по диску — сканировать`nДвойной клик по папке или Enter — открыть`nBackspace — вверх`n" +
         "F5 — сканировать заново`nCtrl+S — сохранить отчёт на рабочий стол`nCtrl+F — поиск`nCtrl+B — скрыть/показать панель дисков",
         'О программе', 'OK', 'Information') | Out-Null
@@ -1247,6 +1500,7 @@ $form.add_KeyDown({
 
 $form.add_FormClosing({ $script:cancel = $true })
 $form.add_Shown({
+    if ($script:settings.AutoUpdate) { Start-UpdateCheck $true }
     Layout-Topbar
     Center-Empty
     $lblHint.Location = Pt ($sideFoot.ClientSize.Width - $lblHint.Width - (Px 14)) (Px 8)
