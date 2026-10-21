@@ -13,7 +13,7 @@ exit /b
 
 # При каждом изменении, которое заливается на GitHub, увеличивай версию:
 # по ней программа понимает, что пора обновиться.
-$AppVersion = '1.3.1'
+$AppVersion = '1.3.2'
 $RepoUrl    = 'https://github.com/zena-grai/AnalizatorDisc'
 $RawUrl     = 'https://raw.githubusercontent.com/zena-grai/AnalizatorDisc/main/DiskAnalyzer.bat'
 
@@ -1052,6 +1052,17 @@ $TipChecks = @(
       'Проверь вручную: там часто лежат старые установщики и архивы.')
 )
 
+# Размер системного файла (hiberfil.sys, pagefile.sys). Без прав администратора Windows
+# не даёт открыть их напрямую, поэтому сначала берём размер из результатов сканирования.
+function Get-FileSize($S, [string]$path) {
+    foreach ($bf in $S.Big) { if ($bf.Path -eq $path) { return $bf.Size } }
+    try {
+        $dir = [IO.Path]::GetDirectoryName($path); $name = [IO.Path]::GetFileName($path)
+        foreach ($fi in ([IO.DirectoryInfo]$dir).EnumerateFiles($name)) { return $fi.Length }
+    } catch {}
+    $null
+}
+
 function Fill-Tips($S) {
 
     $lvTips.BeginUpdate()
@@ -1059,7 +1070,7 @@ function Fill-Tips($S) {
     $onC = $S.Root.StartsWith('C:\', [StringComparison]::OrdinalIgnoreCase)
     if ($onC) {
         foreach ($cx in $TipChecks) {
-            if ($cx[2]) { $sv = (Get-Item -LiteralPath $cx[1] -Force).Length }
+            if ($cx[2]) { $sv = Get-FileSize $S $cx[1] }
             elseif ($S.Total.ContainsKey($cx[1])) { $sv = $S.Total[$cx[1]] }
             else { $sv = 0 }
             if (-not $sv -or $sv -lt 50MB) { continue }
@@ -1184,7 +1195,7 @@ function Export-Report {
         $rep.Add('  ИЗВЕСТНЫЕ МЕСТА')
         $rep.Add($line)
         foreach ($cx in $TipChecks) {
-            if ($cx[2]) { $sv = (Get-Item -LiteralPath $cx[1] -Force).Length }
+            if ($cx[2]) { $sv = Get-FileSize $S $cx[1] }
             elseif ($S.Total.ContainsKey($cx[1])) { $sv = $S.Total[$cx[1]] }
             else { $sv = $null }
             $size = if ($sv) { Fmt $sv } else { 'нет' }
