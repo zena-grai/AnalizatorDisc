@@ -13,7 +13,7 @@ exit /b
 
 # При каждом изменении, которое заливается на GitHub, увеличивай версию:
 # по ней программа понимает, что пора обновиться.
-$AppVersion = '1.3.0'
+$AppVersion = '1.3.1'
 $RepoUrl    = 'https://github.com/zena-grai/AnalizatorDisc'
 $RawUrl     = 'https://raw.githubusercontent.com/zena-grai/AnalizatorDisc/main/DiskAnalyzer.bat'
 
@@ -277,6 +277,39 @@ function Set-Icon($ico, [bool]$on) {
 }
 function Icon-On($ico) { $ico.AccessibleDescription -ne 'off' }
 
+# Кнопка со скруглёнными углами: рисуем её сами, с подсветкой при наведении и нажатии
+function Set-RoundStyle($btn, $back, $hover) {
+    $btn.FlatStyle = 'Flat'
+    $btn.FlatAppearance.BorderSize = 0
+    $btn.FlatAppearance.MouseOverBackColor = $back
+    $btn.FlatAppearance.MouseDownBackColor = $back
+    $btn.BackColor = $back
+    $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $btn.Tag = @{ Back = $back; Hover = $hover; Hot = $false; Down = $false }
+    $btn.add_MouseEnter({ $this.Tag.Hot = $true;  $this.Invalidate() })
+    $btn.add_MouseLeave({ $this.Tag.Hot = $false; $this.Tag.Down = $false; $this.Invalidate() })
+    $btn.add_MouseDown({ $this.Tag.Down = $true;  $this.Invalidate() })
+    $btn.add_MouseUp({   $this.Tag.Down = $false; $this.Invalidate() })
+    $btn.add_Paint({
+        param($sender, $ev)
+        $st = $sender.Tag
+        $gr = $ev.Graphics
+        $gr.Clear($sender.Parent.BackColor)
+        $col = if (-not $sender.Enabled) { $C.Track } elseif ($st.Hot) { $st.Hover } else { $st.Back }
+        $d = if ($st.Down) { 1 } else { 0 }
+        Fill-Round $gr $col $d $d ($sender.Width - 1 - 2 * $d) ($sender.Height - 1 - 2 * $d) (Px 8)
+        $fore = if ($sender.Enabled) { $sender.ForeColor } else { $C.Dim }
+        DT $gr $sender.Text $sender.Font (Rect 0 $d $sender.Width $sender.Height) $fore $TF_C
+    })
+}
+
+# Сменить цвета круглой кнопки (например, «Сканировать» → красная «Остановить»)
+function Set-RoundColors($btn, $back, $hover) {
+    $btn.Tag.Back = $back; $btn.Tag.Hover = $hover
+    $btn.BackColor = $back
+    $btn.Invalidate()
+}
+
 function New-Line($parent, [string]$dock) {
     $p = New-Object System.Windows.Forms.Panel
     $p.BackColor = $C.Line
@@ -434,14 +467,10 @@ $lblTipsHint.Text = 'Системный мусор безопаснее всег
 $lblTipsHint.Location = Pt (Px 10) (Px 17)
 $tipsHead.Controls.Add($lblTipsHint)
 $btnCleanmgr = New-Object System.Windows.Forms.Button
-$btnCleanmgr.FlatStyle = 'Flat'
-$btnCleanmgr.FlatAppearance.BorderColor = $C.Line
-$btnCleanmgr.FlatAppearance.MouseOverBackColor = $C.Hover
-$btnCleanmgr.BackColor = $C.Field
+Set-RoundStyle $btnCleanmgr $C.Field $C.Hover
 $btnCleanmgr.ForeColor = $C.Text
 $btnCleanmgr.Text = 'Открыть «Очистку диска»'
-$btnCleanmgr.Size = Sz (Px 200) (Px 32)
-$btnCleanmgr.Cursor = [System.Windows.Forms.Cursors]::Hand
+$btnCleanmgr.Size = Sz (Px 210) (Px 34)
 $tipsHead.Controls.Add($btnCleanmgr)
 $tipsHead.add_Resize({ $btnCleanmgr.Location = Pt ($tipsHead.ClientSize.Width - $btnCleanmgr.Width - (Px 10)) (Px 10) })
 
@@ -523,15 +552,11 @@ $icoExplore = New-IconButton $topbar $G.Open 'Открыть в проводни
 $icoReport  = New-IconButton $topbar $G.Save 'Сохранить отчёт на рабочий стол  (Ctrl+S)'
 
 $btnScan = New-Object System.Windows.Forms.Button
-$btnScan.FlatStyle = 'Flat'
-$btnScan.FlatAppearance.BorderSize = 0
-$btnScan.FlatAppearance.MouseOverBackColor = $C.AccentHover
-$btnScan.BackColor = $C.Accent
+Set-RoundStyle $btnScan $C.Accent $C.AccentHover
 $btnScan.ForeColor = [System.Drawing.Color]::White
 $btnScan.Font = $F.UiBold
 $btnScan.Text = 'Сканировать'
 $btnScan.Size = Sz (Px 136) (Px 34)
-$btnScan.Cursor = [System.Windows.Forms.Cursors]::Hand
 $topbar.Controls.Add($btnScan)
 
 function Layout-Topbar {
@@ -755,12 +780,10 @@ $lb.add_MouseLeave({ $script:sideHot = -1; $this.Invalidate() })
 function Set-Busy([bool]$b) {
     if ($b) {
         $btnScan.Text = 'Остановить'
-        $btnScan.BackColor = $C.Red
-        $btnScan.FlatAppearance.MouseOverBackColor = $C.RedHover
+        Set-RoundColors $btnScan $C.Red $C.RedHover
     } else {
         $btnScan.Text = 'Сканировать'
-        $btnScan.BackColor = $C.Accent
-        $btnScan.FlatAppearance.MouseOverBackColor = $C.AccentHover
+        Set-RoundColors $btnScan $C.Accent $C.AccentHover
         $script:scanning = $null
     }
     Set-Icon $icoAddDir (-not $b); Set-Icon $icoReload (-not $b)
@@ -1321,14 +1344,10 @@ function Update-SettingsUi {
 
 function New-FlatButton([string]$text, $back, $hover, $fore) {
     $btn = New-Object System.Windows.Forms.Button
-    $btn.FlatStyle = 'Flat'
-    $btn.FlatAppearance.BorderSize = 0
-    $btn.FlatAppearance.MouseOverBackColor = $hover
-    $btn.BackColor = $back
+    Set-RoundStyle $btn $back $hover
     $btn.ForeColor = $fore
     $btn.Font = $F.UiBold
     $btn.Text = $text
-    $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
     $btn
 }
 
